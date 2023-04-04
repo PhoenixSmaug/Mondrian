@@ -1,133 +1,112 @@
-using DataStructures
+using JuMP
+using Gurobi
+using Primes
 using ProgressMeter
+using DataStructures
+using Suppressor
 
-include("comb-dfs.jl")
-include("comb-ilp.jl")
-include("cover-ilp.jl")
-include("cover-dance.jl")
+# https://stackoverflow.com/questions/73988976/optimize-a-divisors-algorithm-in-julia
 
-"""
-Solve the Mondrian Art problem
-1) Collect all rectangles up to size nxn in a Priority Queue with descending area
-2) Find all subsets of rectangle with area == n^2 and defect <= d
-    A) Convert to Integer Programming Problem and Solve with Gurobi
-    B) Simple Backtracking with Depth First Search
-3) Parallel search starting with solutions of smallest defect
-    A) Convert to Exact Cover Problem and Solve with Knuths Dancing Link Algorithm
-    B) Convert to Integer Programming Problem and Solve with Gurobi/HiGHS
-"""
+_tensorprod(A,B) = Iterators.map(x->(x[2],x[1]),Iterators.product(A,B))
+tensorprod(A,B) = Iterators.map(x->tuple(Iterators.flatten(x)...),_tensorprod(B,A))
 
-function mondrian(n::Int64, d::Int64; milp = false, dfs = false, dmin = 0)
-    # 1) Collect all rectangles up to size nxn in a Priority Queue with descending area
-
-    pq = PriorityQueue{Pair{Int64, Int64}, Int64}(Base.Order.Reverse);
-    for i in 1 : n
-        for j in i : n
-            if !(i == j == n)
-                pq[Pair(i, j)] = i * j
-            end
-        end
+function divisors(n::Int64)
+    if (n == 1)
+        return [1]
     end
 
-    # 2) Find all subsets of rectangle with area == n^2 and defect <= d
+    f = factor(n)
+    _f = map(x -> [x[1]^i for i=0:x[2]], sort(collect(f); rev=true))
+    return vec(map(prod,foldl(tensorprod, _f)))
+end
 
-    areas = Vector{Int64}()
-    pairs = Vector{Pair{Int64, Int64}}()
-    for i in pq
-        push!(pairs, i[1])
-        push!(areas, i[2])
-    end
-    coll = PriorityQueue{Vector{Int64}, Int64}()
+function mondrian(n::Int64; minPieces = 9)
+    # find all rectangle combinations
 
-    if !dfs
-        combinationsILP!(coll, areas, n, d)
-    else
-        combinationsDFS!(coll, fill(-1, length(pq)), areas, n, d)
-    end
+    collVec = Vector{Vector{Pair{Int64, Int64}}}()
+    d = divisors(n^2)
 
-    if isempty(coll)
-        println("No combinations possible.")
-        return Inf, fill(0, 0, 0)
-    end
-
-    # filter defects bigger than dmin
-    while peek(coll)[2] < dmin
-        dequeue!(coll)
-    end
-
-    println("Combinations possible: " * string(length(coll)))
-
-    # 3) Parallel search starting with solutions of smallest defect
-
-    collVec = Vector{Vector{Int64}}()  # convert Priority Queue to Vector for thread access
-    for i in coll
-        push!(collVec, i[1])
-    end
-
-    if (milp)
-        @showprogress "Integer Programming" for j in 1 : length(collVec)
-            # convert to list of rectangles
-            rects = Vector{Pair{Int64, Int64}}()
-            for i in 1 : length(collVec[j])
-                if collVec[j][i] == 1
-                    push!(rects, pairs[i])
-                end
-            end
-
-            # solve exact cover problem
-            success, result = solveILP(n, rects)
-
-            if (success)
-                display(result)
-                return coll[collVec[j]], result
-            end
-        end
-
-        return Inf, fill(0, 0, 0)
-    else
-        done = Threads.Atomic{Bool}(false)  # thread output values
-        result = fill(fill(0, 0, 0), Threads.nthreads())
-        defect = fill(typemax(Int64), Threads.nthreads())
-
-        p = Progress(length(coll), "Dancing Links using " * string(Threads.nthreads()) * " threads.")  # progress bar
-        ProgressMeter.update!(p, 0)
-        t = Threads.Atomic{Int64}(0)
-        l = Threads.SpinLock()
-
-        Threads.@threads for j in 1 : length(collVec)  # Parallel search
-            if done[]  # one thread found a solution
+    for r in d
+        if r >= minPieces
+            alpha = trunc(Int, n^2/r)  # area of rectangles
+            if ceil(alpha/2) >= r  # no effect?
+                #println("Work to do for r = " * string(r))
+            else
                 continue
             end
 
-            # convert to list of rectangles
+            dA = divisors(alpha)
+            s = dA[dA .<= n .&& alpha./dA .<= n] # filter rectangles bigger than square
+            
+            if ceil(length(s)/2) < r  # less than r pieces
+                continue
+            end
+
             rects = Vector{Pair{Int64, Int64}}()
-            for i in 1 : length(collVec[j])
-                if collVec[j][i] == 1
-                    push!(rects, pairs[i])
-                end
+            for i in 1 : trunc(Int, ceil(length(s)/2))  # either s has even length of complements or odd with square in the center
+                push!(rects, Pair(s[i], trunc(Int, alpha/s[i])))
             end
 
-            # solve exact cover problem
-            success, result[Threads.threadid()] = solveDancingLinks(n, rects)
-
-            Threads.atomic_add!(t, 1)  # progress bar update
-            Threads.lock(l)
-            ProgressMeter.update!(p, t[])
-            Threads.unlock(l)
-
-            if success  # if current thread found solution
-                done[] = true
-                defect[Threads.threadid()] = coll[collVec[j]]
-            end
-        end
-
-        if !done[]  # no thread found any solution
-            return Inf, fill(0, 0, 0)
-        else
-            # from all threads with a solution use solution with minimal defect
-            best = argmin(defect)
-            display(result[best])
-            return defect[best], result[best]
+            push!(collVec, rects)
         end
     end
+
+    println("Combinations possible: " * string(length(collVec)))
+
+    @showprogress "Integer Programming" for j in 1 : length(collVec)
+        success = solveILP(n, collVec[j])  # solve exact cover problem
+
+        if (success)
+            return true
+        end
+    end
+
+    return false
+end
+
+# M. Berger, M. Schröder, K.-H. Küfer, "A constraint programming approach for the two-dimensional rectangular packing problem with orthogonal orientations", Berichte des Fraunhofer ITWM, Nr. 147 (2008).
+
+function solveILP(n::Int64, rects::Vector{Pair{Int64, Int64}})
+    @suppress begin  # Gurobi license message
+
+    m = length(rects)  # (width, height)
+
+    model = Model(Gurobi.Optimizer)
+
+    @variable(model, sx[1:m], Int)  # size in x direction
+    @variable(model, sy[1:m], Int)  # size in y direction
+    @variable(model, px[1:m], Int)  # x position
+    @variable(model, py[1:m], Int)  # y position
+    @variable(model, o[1:m], Bin)  # orientation of rectangle
+    @variable(model, z[1:m, 1:m, 1:4], Bin)  # help variable for overlap
+
+    for i in 1 : m
+        @constraint(model, px[i] >= 0)  # no non-negative positions
+        @constraint(model, py[i] >= 0)
+
+        @constraint(model, px[i] + sx[i] <= n)  # contained in square
+        @constraint(model, py[i] + sy[i] <= n)
+
+        @constraint(model, (1 - o[i]) * rects[i][1] + o[i] * rects[i][2] == sx[i])  # determine size from orientation
+        @constraint(model, o[i] * rects[i][1] + (1 - o[i]) * rects[i][2] == sy[i])
+    end
+
+    for i in 1 : m
+        for j in i + 1 : m
+            @constraint(model, px[i] - px[j] + sx[i] <= n * (1 - z[i, j, 1]))  # left
+            @constraint(model, px[j] - px[i] + sx[j] <= n * (1 - z[i, j, 2]))  # right
+            @constraint(model, py[i] - py[j] + sy[i] <= n * (1 - z[i, j, 3]))  # below
+            @constraint(model, py[j] - py[i] + sy[j] <= n * (1 - z[i, j, 4]))  # above
+
+            @constraint(model, z[i, j, 1] + z[i, j, 2] <= 1)  # can't be on the left and on the right of another rectangle
+            @constraint(model, z[i, j, 4] + z[i, j, 3] <= 1)
+            @constraint(model, sum(z[i, j, :]) >= 1)  # one of the cases must be true, rectangles don't overlap
+        end
+    end
+
+    optimize!(model)
+
+    return has_values(model)
+
+    end  # suppress
 end

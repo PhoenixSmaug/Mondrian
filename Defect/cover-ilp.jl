@@ -5,7 +5,9 @@ Integer Programming Solver
 - For rectangle packing far slower than dancing links
 """
 
-#using HiGHS
+using JuMP
+using Gurobi
+using Suppressor
 
 function solveILP(n::Int64, rects::Vector{Pair{Int64, Int64}})
     # 1) setup
