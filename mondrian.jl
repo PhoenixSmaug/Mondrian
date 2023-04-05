@@ -1,7 +1,6 @@
 using JuMP
 using Gurobi
 using Primes
-using ProgressMeter
 using DataStructures
 using Suppressor
 
@@ -23,20 +22,14 @@ end
 function mondrian(n::Int64; minPieces = 9)
     # find all rectangle combinations
 
-    collVec = Vector{Vector{Pair{Int64, Int64}}}()
+    combinations = Vector{Pair{Int64, Vector{Pair{Int64, Int64}}}}()
     d = divisors(n^2)
 
     for r in d
         if r >= minPieces
-            alpha = trunc(Int, n^2/r)  # area of rectangles
-            if ceil(alpha/2) >= r  # no effect?
-                #println("Work to do for r = " * string(r))
-            else
-                continue
-            end
-
-            dA = divisors(alpha)
-            s = dA[dA .<= n .&& alpha./dA .<= n] # filter rectangles bigger than square
+            area = trunc(Int, n^2/r)  # area of rectangles
+            dA = divisors(area)
+            s = dA[dA .<= n .&& area./dA .<= n] # filter rectangles bigger than square
             
             if ceil(length(s)/2) < r  # less than r pieces
                 continue
@@ -44,17 +37,19 @@ function mondrian(n::Int64; minPieces = 9)
 
             rects = Vector{Pair{Int64, Int64}}()
             for i in 1 : trunc(Int, ceil(length(s)/2))  # either s has even length of complements or odd with square in the center
-                push!(rects, Pair(s[i], trunc(Int, alpha/s[i])))
+                push!(rects, Pair(s[i], trunc(Int, area/s[i])))
             end
 
-            push!(collVec, rects)
+            push!(combinations, Pair(r, rects))
         end
     end
 
-    println("Combinations possible: " * string(length(collVec)))
+    println("Combinations possible (n = " * string(n) * "): " * string(length(combinations)))
 
-    @showprogress "Integer Programming" for j in 1 : length(collVec)
-        success = solveILP(n, collVec[j])  # solve exact cover problem
+    for j in 1 : length(combinations)
+        printstyled("Solving (" * string(j) * "/" * string(length(combinations)) * "): r = " * string(combinations[j][1]) * ", rects = "  * string(combinations[j][2]) * "\n"; color = :green)
+
+        success = solveILP(n, combinations[j][1], combinations[j][2])  # solve exact cover problem
 
         if (success)
             return true
@@ -66,8 +61,8 @@ end
 
 # M. Berger, M. Schröder, K.-H. Küfer, "A constraint programming approach for the two-dimensional rectangular packing problem with orthogonal orientations", Berichte des Fraunhofer ITWM, Nr. 147 (2008).
 
-function solveILP(n::Int64, rects::Vector{Pair{Int64, Int64}})
-    @suppress begin  # Gurobi license message
+function solveILP(n::Int64, r::Int64, rects::Vector{Pair{Int64, Int64}})
+    #@suppress begin  # Gurobi license message
 
     m = length(rects)  # (width, height)
 
@@ -78,10 +73,13 @@ function solveILP(n::Int64, rects::Vector{Pair{Int64, Int64}})
     @variable(model, px[1:m], Int)  # x position
     @variable(model, py[1:m], Int)  # y position
     @variable(model, o[1:m], Bin)  # orientation of rectangle
+    @variable(model, u[1:m], Bin)  # rectangle used in solution
     @variable(model, z[1:m, 1:m, 1:4], Bin)  # help variable for overlap
 
+    @constraint(model, sum(u) == r)  # use r rectangles
+
     for i in 1 : m
-        @constraint(model, px[i] >= 0)  # no non-negative positions
+        @constraint(model, px[i] >= 0)  # no non-negative positions (un-unused rectangles are allowed to have negative positions)
         @constraint(model, py[i] >= 0)
 
         @constraint(model, px[i] + sx[i] <= n)  # contained in square
@@ -93,10 +91,11 @@ function solveILP(n::Int64, rects::Vector{Pair{Int64, Int64}})
 
     for i in 1 : m
         for j in i + 1 : m
-            @constraint(model, px[i] - px[j] + sx[i] <= n * (1 - z[i, j, 1]))  # left
-            @constraint(model, px[j] - px[i] + sx[j] <= n * (1 - z[i, j, 2]))  # right
-            @constraint(model, py[i] - py[j] + sy[i] <= n * (1 - z[i, j, 3]))  # below
-            @constraint(model, py[j] - py[i] + sy[j] <= n * (1 - z[i, j, 4]))  # above
+            # only if u[i] and u[j] are true the condition is relevant
+            @constraint(model, px[i] - px[j] + sx[i] <= n * (1 - z[i, j, 1] + (1 - u[i]) + (1 - u[j])))  # left
+            @constraint(model, px[j] - px[i] + sx[j] <= n * (1 - z[i, j, 2] + (1 - u[i]) + (1 - u[j])))  # right
+            @constraint(model, py[i] - py[j] + sy[i] <= n * (1 - z[i, j, 3] + (1 - u[i]) + (1 - u[j])))  # below
+            @constraint(model, py[j] - py[i] + sy[j] <= n * (1 - z[i, j, 4] + (1 - u[i]) + (1 - u[j])))  # above
 
             @constraint(model, z[i, j, 1] + z[i, j, 2] <= 1)  # can't be on the left and on the right of another rectangle
             @constraint(model, z[i, j, 4] + z[i, j, 3] <= 1)
@@ -106,7 +105,27 @@ function solveILP(n::Int64, rects::Vector{Pair{Int64, Int64}})
 
     optimize!(model)
 
+    debug = false
+    if has_values(model) && debug  # debug output
+        output = fill(0, n, n)
+
+        for i in 1 : m
+            if Bool(round(value(u[i])))
+                iPX = Int(round(value(px[i])))
+                iPY = Int(round(value(py[i])))
+                iSX = Int(round(value(sx[i])))
+                iSY = Int(round(value(sy[i])))
+
+                for x in iPX + 1 : iPX + iSX 
+                    for y in iPY + 1 : iPY + iSY
+                        output[y, x] = i
+                    end
+                end
+            end
+        end
+    end
+
     return has_values(model)
 
-    end  # suppress
+    #end  # suppress
 end
