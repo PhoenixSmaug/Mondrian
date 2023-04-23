@@ -5,6 +5,7 @@ include("comb-dfs.jl")
 include("comb-ilp.jl")
 include("cover-ilp.jl")
 include("cover-dance.jl")
+include("cover-dfs.jl")
 
 """
 Solve the Mondrian Art problem
@@ -17,7 +18,7 @@ Solve the Mondrian Art problem
     B) Convert to Integer Programming Problem and Solve with Gurobi/HiGHS
 """
 
-function mondrian(n::Int64, d::Int64; milp = false, dfs = false, dmin = 0)
+function mondrian(n::Int64, d::Int64; milp = false, dfs = false, dmin = 0, backtrack = true)
     # 1) Collect all rectangles up to size nxn in a Priority Queue with descending area
 
     pq = PriorityQueue{Pair{Int64, Int64}, Int64}(Base.Order.Reverse);
@@ -106,9 +107,19 @@ function mondrian(n::Int64, d::Int64; milp = false, dfs = false, dmin = 0)
                     push!(rects, pairs[i])
                 end
             end
+            
+            success = false
+            if backtrack
+                for i in length(collVec[j]) : -1 : 1
+                    if collVec[j][i] == 1
+                        push!(rects, Pair(pairs[i][2], pairs[i][1]))
+                    end
+                end
 
-            # solve exact cover problem
-            success, result[Threads.threadid()] = solveDancingLinks(n, rects)
+                success, result[Threads.threadid()] = solveBacktrack(n, trunc(Int, length(rects)/2), rects)  # using backtracking
+            else
+                success, result[Threads.threadid()] = solveDancingLinks(n, rects)  # using dancing links
+            end
 
             Threads.atomic_add!(t, 1)  # progress bar update
             Threads.lock(l)

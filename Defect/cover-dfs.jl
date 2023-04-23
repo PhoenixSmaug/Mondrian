@@ -1,48 +1,6 @@
 using Primes
-using ProgressMeter
-
-function mondrian(n::Int64; minPieces = 9)
-    # find all rectangle combinations
-
-    combinations = Vector{Pair{Int64, Vector{Pair{Int64, Int64}}}}()
-    d = divisors(n^2)
-
-    for r in d
-        if r >= minPieces
-            area = trunc(Int, n^2/r)  # area of rectangles
-            dA = divisors(area)
-            s = dA[dA .<= n .&& area./dA .<= n] # filter rectangles bigger than square
-            
-            if ceil(length(s)/2) < r  # less than r pieces
-                continue
-            end
-
-            rects = Vector{Pair{Int64, Int64}}()
-            for i in s
-                push!(rects, Pair(i, trunc(Int, area/i)))
-            end
-
-            push!(combinations, Pair(r, rects))
-        end
-    end
-
-    #println("Combinations possible (n = " * string(n) * "): " * string(length(combinations)))
-
-    for j in 1 : length(combinations)
-        printstyled("Solving (" * string(j) * "/" * string(length(combinations)) * "): n = " * string(n) * ", r = " * string(combinations[j][1]) * ", rects = "  * string(combinations[j][2]) * "\n"; color = :green)
-
-        success = solveBacktrack(n, combinations[j][1], combinations[j][2])  # solve exact cover problem
-
-        if success
-            return true
-        end
-    end
-
-    return false
-end
 
 function solveBacktrack(n::Int64, r::Int64, rects::Vector{Pair{Int64, Int64}})
-    prog = ProgressUnknown("Backtracking search:")
     s = length(rects)
     center = ceil(s/2)
 
@@ -53,8 +11,6 @@ function solveBacktrack(n::Int64, r::Int64, rects::Vector{Pair{Int64, Int64}})
     steps = 1
 
     while count < r && count >= 0
-        ProgressMeter.update!(prog, steps)
-
         # try to place next piece on (i, j)
 
         done = false
@@ -141,10 +97,9 @@ function solveBacktrack(n::Int64, r::Int64, rects::Vector{Pair{Int64, Int64}})
     end
 
     if count == r
-        display(tiles)
-        return true
+        return true, tiles
     else
-        return false
+        return false, tiles
     end
 end
 

@@ -1,5 +1,5 @@
 """
-Integer Programming Solver
+Dancing Links Solver
 - Knuths Dancing Link Algorithm (https://arxiv.org/abs/cs/0011047) using dictionaries https://www.cs.mcgill.ca/~aassaf9/python/algorithm_x.html
 - For rectangle packing far faster than Integer programming
 - Translation into Exact Cover Problem (https://en.wikipedia.org/wiki/Exact_cover)
