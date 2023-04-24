@@ -1,37 +1,46 @@
-using Primes
 using ProgressMeter
 
+"""
+Perfect Mondrian Art Problem Solver
+- Focus on the case defect = 0
+- Paper proves defect = 0 can't be done with less than 9 pieces
+
+1) Find possibilities with trivial number theory
+2) Test with backtracking using top-left-heuristic and rectangles sorted by width
+"""
+
 function mondrian(n::Int64; minPieces = 9)
-    # find all rectangle combinations
+    # 1) Find possibilities with trivial number theory
 
-    combinations = Vector{Pair{Int64, Vector{Pair{Int64, Int64}}}}()
-    d = divisors(n^2)
+    combinations = Vector{Pair{Int64, Vector{Pair{Int64, Int64}}}}()  # (r, rects)
+    divs = divisors(n^2)
 
-    for r in d
+    for r in divs  # number of pieces must divide number of tiles
         if r >= minPieces
-            area = trunc(Int, n^2/r)  # area of rectangles
-            dA = divisors(area)
-            s = dA[dA .<= n .&& area./dA .<= n] # filter rectangles bigger than square
+            area = trunc(Int, n^2/r)
+            divsArea = divisors(area)
+            candidates = divsArea[divsArea .<= n .&& area./divsArea .<= n]  # remove all rectangles with a bigger side than the square
             
-            if ceil(length(s)/2) < r  # less than r pieces
+            if ceil(length(candidates)/2) < r  # there must be at least r viable rectangles
                 continue
             end
 
             rects = Vector{Pair{Int64, Int64}}()
-            for i in s
+            for i in candidates
                 push!(rects, Pair(i, trunc(Int, area/i)))
             end
-
             push!(combinations, Pair(r, rects))
         end
     end
 
-    #println("Combinations possible (n = " * string(n) * "): " * string(length(combinations)))
+    println("Combinations possible (n = " * string(n) * "): " * string(length(combinations)))
+
+    # 2) Test with backtracking using top-left-heuristic and rectangles sorted by width
 
     for j in 1 : length(combinations)
         printstyled("Solving (" * string(j) * "/" * string(length(combinations)) * "): n = " * string(n) * ", r = " * string(combinations[j][1]) * ", rects = "  * string(combinations[j][2]) * "\n"; color = :green)
 
-        success = solveBacktrack(n, combinations[j][1], combinations[j][2])  # solve exact cover problem
+        success = solve(n, combinations[j][1], combinations[j][2])  # solve exact cover problem using backtracking
 
         if success
             return true
@@ -41,26 +50,26 @@ function mondrian(n::Int64; minPieces = 9)
     return false
 end
 
-function solveBacktrack(n::Int64, r::Int64, rects::Vector{Pair{Int64, Int64}})
+
+function solve(n::Int64, r::Int64, rects::Vector{Pair{Int64, Int64}})
     prog = ProgressUnknown("Backtracking search:")
     s = length(rects)
-    center = ceil(s/2)
 
-    tiles = fill(0, n, n)
-    used = fill(0, s)
-    coords = Vector{Pair{Int64, Int64}}()
-    count = 0; i = j = kStart = 1
-    steps = 1
+    tiles = fill(0, n, n)  # current state of square
+    used = fill(0, s)  # rectangles used
+    coords = Vector{Pair{Int64, Int64}}()  # remember coordinates
+    count = 0  # number of rectangles used
+    i = j = kStart = steps = 1
 
     while count < r && count >= 0
         ProgressMeter.update!(prog, steps)
 
-        # try to place next piece on (i, j)
+        # 1) Try to place a rectangle on (i, j)
 
         done = false
         k = kStart
         
-        while (k <= center || (k <= s && count > 0)) && !done
+        while (k <= ceil(s/2) || (k <= s && count > 0)) && !done
             if used[k] == 0 && (i + rects[k][1] - 1 <= n && j + rects[k][2] - 1 <= n)  # piece not used and fits
                 done = true
 
@@ -90,13 +99,10 @@ function solveBacktrack(n::Int64, r::Int64, rects::Vector{Pair{Int64, Int64}})
             end
         end
 
-        if done  # another piece can be placed
+        if done  # rectangle k can be placed on (i, j)
             push!(coords, Pair(i, j))
 
             for l = 0 : rects[k][1] - 1  # fill tiles with selected square
-                tiles[i + l, j] = k
-                tiles[i + l, j + rects[k][2] - 1] = k
-
                 for m = 0 : rects[k][2] - 1
                     tiles[i + l, j + m] = k
                 end
@@ -106,12 +112,11 @@ function solveBacktrack(n::Int64, r::Int64, rects::Vector{Pair{Int64, Int64}})
             used[s - k + 1] = -1  # different rotation can't be used anymore
             used[k] = count
             kStart = 1
-        else
-            # find last piece placed by count number
-            k = argmax(used)
+        else  # no rectangle can be placed anymore, backtrack
+            k = argmax(used)  # find which piece was last piece
 
             if !isempty(coords)
-                last = pop!(coords)  # remove from coords
+                last = pop!(coords)  # find coordinates of last piece
 
                 for l = 0 : rects[k][1] - 1  # remove from tiles
                     for m = 0 : rects[k][2] - 1
@@ -140,7 +145,7 @@ function solveBacktrack(n::Int64, r::Int64, rects::Vector{Pair{Int64, Int64}})
         steps += 1
     end
 
-    if count == r
+    if count == r  # print solution
         display(tiles)
         return true
     else
@@ -148,16 +153,14 @@ function solveBacktrack(n::Int64, r::Int64, rects::Vector{Pair{Int64, Int64}})
     end
 end
 
-# https://stackoverflow.com/questions/73988976/optimize-a-divisors-algorithm-in-julia
-_tensorprod(A,B) = Iterators.map(x->(x[2],x[1]),Iterators.product(A,B))
-tensorprod(A,B) = Iterators.map(x->tuple(Iterators.flatten(x)...),_tensorprod(B,A))
 
 function divisors(n::Int64)
-    if (n == 1)
-        return [1]
+    divs = Vector{Int64}()
+    for i in 1 : n
+        if n % i == 0
+            push!(divs, i)
+        end
     end
 
-    f = factor(n)
-    _f = map(x -> [x[1]^i for i=0:x[2]], sort(collect(f); rev=true))
-    return vec(map(prod,foldl(tensorprod, _f)))
+    return divs
 end
