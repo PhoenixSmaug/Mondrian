@@ -51,9 +51,6 @@ function mondrian(n::Int64; minPieces = 9)
 
         success = solveILP(n, combinations[j][1], combinations[j][2])  # solve exact cover problem
 
-        #time = @elapsed success, _ = solveDancingLinks(n, combinations[j][2])
-        #println(time)
-
         if (success)
             return true
         end

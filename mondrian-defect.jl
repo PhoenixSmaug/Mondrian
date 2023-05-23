@@ -288,11 +288,7 @@ function solve(n::Int64, rects::Vector{Pair{Int64, Int64}})
         if done  # rectangle k can be placed on (i, j)
             push!(coords, Pair(i, j))
 
-            for l = 0 : rects[k][1] - 1  # fill tiles with selected square
-                for m = 0 : rects[k][2] - 1
-                    tiles[i + l, j + m] = k
-                end
-            end
+            tiles[i : i + rects[k][1] - 1, j : j + rects[k][2] - 1] = fill(k, rects[k][1], rects[k][2])  # fill tiles with selected square
 
             count += 1
             used[s - k + 1] = -1  # different rotation can't be used anymore
@@ -303,12 +299,7 @@ function solve(n::Int64, rects::Vector{Pair{Int64, Int64}})
 
             if !isempty(coords)
                 last = pop!(coords)  # find coordinates of last piece
-
-                for l = 0 : rects[k][1] - 1  # remove from tiles
-                    for m = 0 : rects[k][2] - 1
-                        tiles[last[1] + l, last[2] + m] = 0
-                    end
-                end
+                tiles[last[1] : last[1] + rects[k][1] - 1, last[2] : last[2] + rects[k][2] - 1] = fill(0, rects[k][1], rects[k][2])  # remove from tiles
             end
 
             count -= 1
