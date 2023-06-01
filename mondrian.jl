@@ -99,20 +99,27 @@ function mondrianParallel(n::Int64, r::Int64)
     orders = Vector{Vector{Pair{Int64, Int64}}}()  # go through list sorted by widht and accept each element with p = 0.5, repeat until all rectangles are choosen
     push!(orders, rects)
 
+    rectsFil = rects[1 : Int(floor(length(rects)/2))]
+
     for i in 1 : Threads.nthreads() - 1
         order = Vector{Pair{Int64, Int64}}()
+        remaining = setdiff(rectsFil, order)
 
-        while length(order) != length(rects)
-            remaining = setdiff(rects, order)
-
+        while !isempty(remaining)
             for j in remaining
                 if rand() <= 0.5
                     push!(order, j)
                 end
             end
+
+            remaining = setdiff(rectsFil, order)
         end
 
-        push!(orders, order)
+        if length(rects) % 2 == 1  # rects contain square
+            push!(order, rects[Int(ceil(length(rects)/2))])
+        end
+
+        push!(orders, completeVec(order))
     end
 
     result = fill(false, Threads.nthreads())
@@ -235,4 +242,17 @@ function divisors(n::Int64)
     end
 
     return divs
+end
+
+# Turn [(2, 18), (4, 9), (6, 6)] into [(2, 18), (4, 9), (6, 6), (9, 4), (18, 2)]
+function completeVec(rects::Vector{Pair{Int64, Int64}})
+    rectsRot = Vector{Pair{Int64, Int64}}()
+
+    for i in length(rects) : -1 : 1
+        if i != length(rects) || rects[i][1] != rects[i][2]  # dont rotate the square in the last place``
+            push!(rectsRot, Pair(rects[i][2], rects[i][1]))
+        end
+    end
+
+    return vcat(rects, rectsRot)
 end
