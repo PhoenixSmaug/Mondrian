@@ -41,7 +41,7 @@ function mondrian(n::Int64; minPieces = 9)
     for j in 1 : length(combinations)
         printstyled("Solving (" * string(j) * "/" * string(length(combinations)) * "): n = " * string(n) * ", r = " * string(combinations[j][1]) * ", rects = "  * string(combinations[j][2]) * "\n"; color = :green)
 
-        success = solve(n, combinations[j][1], combinations[j][2])  # solve exact cover problem
+        success = solve(n, combinations[j][1], combinations[j][2], true)  # solve exact cover problem
 
         if success
             return true
@@ -78,9 +78,33 @@ function mondrian(n::Int64, r::Int64)
     return solve(n, r, rects, true)
 end
 
-function mondrianParallel(n::Int64, r::Int64)
-    # 1) Create vector of combinations 
 
+"""
+Perfect Mondrian Art Problem Solver
+- Parallelized approach with random permutations based on sorted by width (BLD* Section 3, https://merl.com/publications/docs/TR2003-05.pdf)
+"""
+function mondrianParallel(n::Int64, r::Int64)
+    result = fill(false, Threads.nthreads())
+
+    Threads.@threads for i = 1 : Threads.nthreads()
+        if i == 1
+            result[1] = mondrian(n, r)
+        else
+            result[i] = mondrianRandom(n, r)
+        end
+
+        if result[i]
+            println("Thread " * string(i) * " finished with a solution.")
+            
+            exit()  # ugly solution since Julia does not allow program termination without leaving REPL
+        end
+    end
+
+    println("No solution found.")
+    return false
+end
+
+function mondrianRandom(n::Int64, r::Int64)
     area = trunc(Int, n^2/r)
     divsArea = divisors(area)
     candidates = divsArea[divsArea .<= n .&& area./divsArea .<= n]  # remove all rectangles with a bigger side than the square
@@ -94,49 +118,28 @@ function mondrianParallel(n::Int64, r::Int64)
         push!(rects, Pair(i, trunc(Int, area/i)))
     end
 
-    # 2) Test in parallel with backtracking using top-left-heuristic and random permutations based on sorted by width (BLD* Section 3, https://merl.com/publications/docs/TR2003-05.pdf)
-
-    orders = Vector{Vector{Pair{Int64, Int64}}}()  # go through list sorted by widht and accept each element with p = 0.5, repeat until all rectangles are choosen
-    push!(orders, rects)
-
     rectsFil = rects[1 : Int(floor(length(rects)/2))]
+    order = Vector{Pair{Int64, Int64}}()
+    remaining = rectsFil
 
-    for i in 1 : Threads.nthreads() - 1
-        order = Vector{Pair{Int64, Int64}}()
-        remaining = setdiff(rectsFil, order)
-
-        while !isempty(remaining)
-            for j in remaining
-                if rand() <= 0.5
-                    push!(order, j)
-                end
+    while !isempty(remaining)
+        for j in remaining
+            if rand() <= 0.5
+                push!(order, j)
             end
-
-            remaining = setdiff(rectsFil, order)
         end
 
-        if length(rects) % 2 == 1  # rects contain square
-            push!(order, rects[Int(ceil(length(rects)/2))])
-        end
-
-        push!(orders, completeVec(order))
+        remaining = setdiff(rectsFil, order)
     end
 
-    result = fill(false, Threads.nthreads())
-
-    Threads.@threads for i = 1 : Threads.nthreads()
-        printstyled("Solving in Thread " * string(Threads.threadid()) * "/" * string(Threads.nthreads()) * " (n = " * string(n) * ", r = " * string(r) * ", m = " * string(length(candidates)) * ", rects = "  * string(orders[Threads.threadid()]) * ")\n"; color = :green)
-
-        result[Threads.threadid()] = solve(n, r, orders[Threads.threadid()], Threads.threadid() == 1)  # only show progress of first thread
-
-        if !result[Threads.threadid()]
-            println("Thread " * string(Threads.threadid()) * " finished with result = " * string(result[Threads.threadid()]))
-            
-            exit()  # ugly solution since Julia does not allow program termination without leaving REPL
-        end
+    if length(rects) % 2 == 1  # rects contain square
+        push!(order, rects[Int(ceil(length(rects)/2))])
     end
+
+    printstyled("Solving (n = " * string(n) * ", r = " * string(r) * ", m = " * string(length(candidates)) * ", rects = "  * string(completeVec(order)) * ")\n"; color = :green)
+
+    return solve(n, r, completeVec(order), false)
 end
-
 
 function solve(n::Int64, r::Int64, rects::Vector{Pair{Int64, Int64}}, showProg::Bool)
     prog = ProgressUnknown("Backtracking search:"; enabled = showProg)
