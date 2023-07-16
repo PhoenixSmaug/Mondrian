@@ -91,19 +91,18 @@ function mondrian(n::Int64, m::Int64, r::Int64)
 end
 
 function solve(n::Int64, m::Int64, r::Int64, rects::Vector{Pair{Int64, Int64}}, showProg::Bool)
-    prog = ProgressUnknown("Backtracking search:"; enabled = showProg)
+    prog = Progress(Int(ceil(length(rects)/2)); enabled=showProg)
+
     s = length(rects)
 
     height = fill(0, n)  # save height stored in each row
     used = fill(0, s)  # rectangles used
     coords = Vector{Pair{Int64, Int64}}()  # remember coordinates
     count = 0  # number of rectangles used
-    i = kStart = steps = 1
+    i = kStart = 1
     j = 0
 
     while count < r && count >= 0
-        ProgressMeter.update!(prog, steps)
-
         # 1) Try to place a rectangle on (i, j)
 
         done = false
@@ -138,7 +137,7 @@ function solve(n::Int64, m::Int64, r::Int64, rects::Vector{Pair{Int64, Int64}}, 
             height[i : i + rects[k][1] - 1] .+= rects[k][2]
 
             if count == 0
-                println(k)
+                ProgressMeter.update!(prog, k)
             end
 
             count += 1
@@ -161,8 +160,6 @@ function solve(n::Int64, m::Int64, r::Int64, rects::Vector{Pair{Int64, Int64}}, 
 
         j = minimum(height)
         i = findfirst(height .== j)  # can't use argmin, since i needs to be minimal such that height[i] = j
-
-        steps += 1
     end
 
     #println(used)
