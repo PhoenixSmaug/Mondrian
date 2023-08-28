@@ -243,11 +243,12 @@ Rectangle Packing via Backtracking
 function solve(n::Int64, rects::Vector{Pair{Int64, Int64}})
     s = length(rects)
 
-    tiles = fill(0, n, n)  # current state of square
+    height = fill(0, n)  # save height stored in each row
     used = fill(0, s)  # rectangles used
     coords = Vector{Pair{Int64, Int64}}()  # remember coordinates
     count = 0  # number of rectangles used
-    i = j = kStart = 1
+    i = kStart = 1
+    j = 0
 
     while count < s/2 && count >= 0
         # 1) Try to place a rectangle on (i, j)
@@ -256,24 +257,15 @@ function solve(n::Int64, rects::Vector{Pair{Int64, Int64}})
         k = kStart
         
         while (k <= ceil(s/2) || (k <= s && count > 0)) && !done
-            if used[k] == 0 && (i + rects[k][1] - 1 <= n && j + rects[k][2] - 1 <= n)  # piece not used and fits
+            if used[k] == 0 && (i + rects[k][1] - 1 <= n && j + rects[k][2] <= n)  # piece not used and fits
                 done = true
 
                 # check permiter of rectangle for collisions with other rectangles
 
-                for l = 0 : rects[k][1] - 1
-                    if tiles[i + l, j] != 0 || tiles[i + l, j + rects[k][2] - 1] != 0
+                for l = 1 : rects[k][1] - 1
+                    if height[i+l] > height[i]
                         done = false
                         break
-                    end
-                end
-
-                if done
-                    for l = 0 : rects[k][2] - 1
-                        if tiles[i, j + l] != 0 || tiles[i + rects[k][1] - 1, j + l] != 0
-                            done = false
-                            break
-                        end
                     end
                 end
 
@@ -288,7 +280,7 @@ function solve(n::Int64, rects::Vector{Pair{Int64, Int64}})
         if done  # rectangle k can be placed on (i, j)
             push!(coords, Pair(i, j))
 
-            tiles[i : i + rects[k][1] - 1, j : j + rects[k][2] - 1] = fill(k, rects[k][1], rects[k][2])  # fill tiles with selected square
+            height[i : i + rects[k][1] - 1] .+= rects[k][2]
 
             count += 1
             used[s - k + 1] = -1  # different rotation can't be used anymore
@@ -299,7 +291,7 @@ function solve(n::Int64, rects::Vector{Pair{Int64, Int64}})
 
             if !isempty(coords)
                 last = pop!(coords)  # find coordinates of last piece
-                tiles[last[1] : last[1] + rects[k][1] - 1, last[2] : last[2] + rects[k][2] - 1] = fill(0, rects[k][1], rects[k][2])  # remove from tiles
+                height[last[1] : last[1] + rects[k][1] - 1] .-= rects[k][2]  # remove from tiles
             end
 
             count -= 1
@@ -308,19 +300,22 @@ function solve(n::Int64, rects::Vector{Pair{Int64, Int64}})
             kStart = k + 1
         end
 
-        # find first free tile top left for (i, j)
-        i = j = 1
-        while tiles[i, j] != 0 && (i < n || (i == n && j < n))
-            if j < n
-                j += 1
-            else
-                i += 1
-                j = 1
-            end
-        end
+        j = minimum(height)
+        i = findfirst(height .== j)  # can't use argmin, since i needs to be minimal such that height[i] = j
     end
 
     if count == s/2
+        tiles = fill(0, n, n)  # output square
+
+        for l in 1 : length(used)
+            if used[l] >= 1
+                i = coords[used[l]][1]
+                j = coords[used[l]][2] + 1  # since j is the minimal value of height, it is zero-indexed
+    
+                tiles[i : i + rects[l][1] - 1, j : j + rects[l][2] - 1] = fill(used[l], rects[l][1], rects[l][2])
+            end
+        end
+
         return true, tiles
     else
         return false, fill(0, 0, 0)
