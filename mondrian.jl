@@ -12,13 +12,13 @@ end
 """
 Perfect Mondrian Art Problem Rectangle Solver
 - Focus on the case defect = 0
-- Paper proves defect = 0 can't be done with less than 9 pieces
+- Paper proves defect = 0 can't be done with less than 7 pieces (Lemma 2.1)
 - Assumed n >= m
 
 1) Find possibilities with trivial number theory
 2) Test with backtracking using top-left-heuristic and rectangles sorted by width
 """
-function mondrian(n::Int64, m::Int64; minPieces = 8)
+function mondrian(n::Int64, m::Int64; minPieces = 7)
     if m > n
         println("It must be: n >= m")
         return
@@ -34,7 +34,7 @@ function mondrian(n::Int64, m::Int64; minPieces = 8)
 
             area = trunc(Int, (n*m)/r)
             divsArea = divisors(area)
-            candidates = divsArea[divsArea .<= n .&& area./divsArea .<= n]  # remove all rectangles with a bigger side than the square
+            candidates = divsArea[divsArea .<= n .&& area./divsArea .<= m]  # remove all rectangles with a bigger side than the square
             
             if ceil(length(candidates)/2) < r  # there must be at least r viable rectangles
                 continue
@@ -44,7 +44,10 @@ function mondrian(n::Int64, m::Int64; minPieces = 8)
             for i in candidates
                 push!(rects, Pair(i, trunc(Int, area/i)))
             end
-            push!(combinations, Pair(r, rects))
+
+            if !isempty(perimiter(rects, n, m, r))  # check if perimiter solutions exist
+                push!(combinations, Pair(r, rects))
+            end
         end
     end
 
@@ -92,6 +95,10 @@ function mondrian(n::Int64, m::Int64, r::Int64)
     rects = Vector{Pair{Int64, Int64}}()
     for i in candidates
         push!(rects, Pair(i, trunc(Int, area/i)))
+    end
+
+    if isempty(perimiter(rects, n, m, r))  # check if perimiter solutions exist
+        return false
     end
 
     # 2) Test with backtracking using top-left-heuristic and rectangles sorted by width
@@ -196,6 +203,135 @@ function solve(n::Int64, m::Int64, r::Int64, rects::Vector{Pair{Int64, Int64}}, 
         return false
     end
 end
+
+
+"""
+Find all perimiter solutions
+"""
+function perimiter(rects::Vector{Pair{Int64, Int64}}, n::Int64, m::Int64, r::Int64)
+    verticalPre = Vector{Vector{Pair{Int64, Int64}}}()
+    horizontalPre = Vector{Vector{Pair{Int64, Int64}}}()
+
+    # find all subsets with backtracking
+    subsets!(verticalPre, fill(-1, length(rects)), rects, n, true)
+    subsets!(horizontalPre, fill(-1, length(rects)), rects, m, false)
+
+    # remove subsets which contain rectangles in both orientations
+    vertical = Vector{Vector{Pair{Int64, Int64}}}()
+    horizontal = Vector{Vector{Pair{Int64, Int64}}}()
+    for s in verticalPre
+        if length(s) == length(Set(Tuple(sort([pair[1], pair[2]])) for pair in s))
+            push!(vertical, s)
+        end
+    end
+    for s in horizontalPre
+        if length(s) == length(Set(Tuple(sort([pair[1], pair[2]])) for pair in s))
+            push!(horizontal, s)
+        end
+    end
+
+    # find neighbours of subsets, meaning the side of the perimiter they fill could be neighboured
+    neighbours = Dict{Vector{Pair{Int64, Int64}},Set{Vector{Pair{Int64, Int64}}}}()
+    for s in union(vertical, horizontal)
+        neighbours[s] = Set{Vector{Pair{Int64, Int64}}}()
+    end
+    for v in vertical
+        for h in horizontal
+            if length(intersect(Set(v), Set(h))) == 1 # v and h have exactly one element in common
+                if length(union(Set(v), Set(h))) == length(Set(Tuple(sort([pair[1], pair[2]])) for pair in union(Set(v), Set(h))))  # v and h dont have one rectangle in both orientations
+                    push!(neighbours[v], h)
+                    push!(neighbours[h], v)
+                end
+            end
+        end
+    end
+
+    # find solution for perimiter by checking if two neighbours of v share a neighbour w except v
+    solutions = Vector{Vector{Vector{Pair{Int64, Int64}}}}()
+    for i in eachindex(vertical)
+        v = vertical[i]
+        for h1 in neighbours[v]
+            for h2 in neighbours[v]
+                if h1 != h2 && length(union(Set(h1), Set(h2))) == length(Set(Tuple(sort([pair[1], pair[2]])) for pair in union(Set(h1), Set(h2))))  # h1 and h2 dont have one rectangle in both orientations
+                    sharedRectsHorizontal= intersect(Set(h1), Set(h2))
+                    if all(x -> x[1] == n, sharedRectsHorizontal)  # h1 and h2 are disjoint or their common rectangle covers entire vertical side
+                        for j in 1 : i-1
+                            w = vertical[j]
+                            if (w in neighbours[h1]) && (w in neighbours[h2])
+                                sharedRectsVertical = intersect(Set(v), Set(w))
+                                if all(x -> x[2] == m, sharedRectsVertical)  # v and w are disjoint or their common rectangle covers entire horizontal side
+                                    if length(union(Set(v), Set(w))) == length(Set(Tuple(sort([pair[1], pair[2]])) for pair in union(Set(v), Set(w))))  # v and w dont have one rectangle in both orientations
+                                        if length([h1; w; h2; v]) == r
+                                            push!(solutions, [h1, w, h2, v])
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return solutions
+end
+
+
+"""
+Find all subsets of rects where the first column sums to n or where the second column sums to n if firstColumn is set to false
+    
+- dfs Vector contains which rectangle are included (1), which are excluded (0) and on which no decision has been made yet (-1)
++------------+---+---+---+----+-----+----+
+| Rectangles | 1 | 2 | 3 | 4  | ... | m  |
++------------+---+---+---+----+-----+----+
+| dfs Vector | 1 | 0 | 1 | -1 | ... | -1 |
++------------+---+---+---+----+-----+----+
+"""
+function subsets!(coll::Vector{Vector{Pair{Int64, Int64}}}, dfs::Vector{Int64}, rects::Vector{Pair{Int64, Int64}}, target::Int64, firstColumn)
+    next = findfirst(==(-1), dfs)
+
+    # since all possibilities need to be found, only stop when dfs = [0, ... 0, 1 ... 1]
+    firstOne = findfirst(==(1), dfs)
+    lastZero = findlast(==(0), dfs)
+    if !isnothing(firstOne) && !isnothing(lastZero) && isnothing(next)
+        if (firstOne > lastZero)
+            return true
+        end
+    end
+
+    if isnothing(next)
+        return false
+    end
+
+    dfs[next] = 1  # include rectangle
+    total = 0  # calculate sum
+    if firstColumn
+        total = sum(r[1] for (r, b) in zip(rects, dfs) if b == 1)
+    else
+        total = sum(r[2] for (r, b) in zip(rects, dfs) if b == 1)
+    end
+
+    if (total <= target)
+        if (total == target)  # solution found
+            push!(coll, [r for (r, b) in zip(rects, dfs) if b == 1])  # add solution to output list
+        end
+
+        if (subsets!(coll, dfs, rects, target, firstColumn))
+            return true
+        end
+    end
+
+    dfs[next] = 0  # exclude rectangle
+    if (subsets!(coll, dfs, rects, target, firstColumn))
+        return true
+    end
+
+    dfs[next] = -1
+
+    return false
+end
+
 
 """
 Return divisors of n in ascending order
