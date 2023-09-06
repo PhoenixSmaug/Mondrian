@@ -4,8 +4,8 @@ using ProgressMeter
 """
 Perfect Mondrian Art Problem Square Solver
 """
-function mondrian(n::Int64)
-    return mondrian(n, n)
+function mondrian(n::Int64; perimeterCheck=false)
+    return mondrian(n, n, perimeterCheck=perimeterCheck)
 end
 
 
@@ -18,7 +18,7 @@ Perfect Mondrian Art Problem Rectangle Solver
 1) Find possibilities with trivial number theory
 2) Test with backtracking using top-left-heuristic and rectangles sorted by width
 """
-function mondrian(n::Int64, m::Int64; minPieces = 7)
+function mondrian(n::Int64, m::Int64; minPieces = 7, perimeterCheck=false)
     if m > n
         println("It must be: n >= m")
         return
@@ -45,7 +45,7 @@ function mondrian(n::Int64, m::Int64; minPieces = 7)
                 push!(rects, Pair(i, trunc(Int, area/i)))
             end
 
-            if !isempty(perimiter(rects, n, m, r))  # check if perimiter solutions exist
+            if !perimeterCheck || perimeter(rects, n, m, r)  # check if perimeter solutions exist
                 push!(combinations, Pair(r, rects))
             end
         end
@@ -76,7 +76,7 @@ end
 Perfect Mondrian Art Problem Solver
 - Specify number of rectangles r
 """
-function mondrian(n::Int64, m::Int64, r::Int64)
+function mondrian(n::Int64, m::Int64, r::Int64; perimeterCheck=true)
     if m > n
         println("n must be bigger than m")
         return
@@ -97,7 +97,7 @@ function mondrian(n::Int64, m::Int64, r::Int64)
         push!(rects, Pair(i, trunc(Int, area/i)))
     end
 
-    if isempty(perimiter(rects, n, m, r))  # check if perimiter solutions exist
+    if perimeterCheck && !perimeter(rects, n, m, r)  # check if perimeter solutions exist
         return false
     end
 
@@ -138,7 +138,7 @@ function solve(n::Int64, m::Int64, r::Int64, rects::Vector{Pair{Int64, Int64}}, 
             if used[k] == 0 && (i + rects[k][1] - 1 <= n && j + rects[k][2] <= m)  # piece not used and fits
                 done = true
 
-                # check perimiter of rectangle for collisions with other rectangles
+                # check perimeter of rectangle for collisions with other rectangles
 
                 for l = 1 : rects[k][1] - 1
                     if height[i+l] > height[i]
@@ -206,9 +206,9 @@ end
 
 
 """
-Find all perimiter solutions
+Check if a perimeter solution exists
 """
-function perimiter(rects::Vector{Pair{Int64, Int64}}, n::Int64, m::Int64, r::Int64)
+function perimeter(rects::Vector{Pair{Int64, Int64}}, n::Int64, m::Int64, r::Int64)
     verticalPre = Vector{Vector{Pair{Int64, Int64}}}()
     horizontalPre = Vector{Vector{Pair{Int64, Int64}}}()
 
@@ -230,7 +230,7 @@ function perimiter(rects::Vector{Pair{Int64, Int64}}, n::Int64, m::Int64, r::Int
         end
     end
 
-    # find neighbours of subsets, meaning the side of the perimiter they fill could be neighboured
+    # find neighbours of subsets, meaning the side of the perimeter they fill could be neighboured
     neighbours = Dict{Vector{Pair{Int64, Int64}},Set{Vector{Pair{Int64, Int64}}}}()
     for s in union(vertical, horizontal)
         neighbours[s] = Set{Vector{Pair{Int64, Int64}}}()
@@ -246,14 +246,14 @@ function perimiter(rects::Vector{Pair{Int64, Int64}}, n::Int64, m::Int64, r::Int
         end
     end
 
-    # find solution for perimiter by checking if two neighbours of v share a neighbour w except v
-    solutions = Vector{Vector{Vector{Pair{Int64, Int64}}}}()
+    # find solution for perimeter by checking if two neighbours of v share a neighbour w except v
+    #solutions = Vector{Vector{Vector{Pair{Int64, Int64}}}}()
     for i in eachindex(vertical)
         v = vertical[i]
         for h1 in neighbours[v]
             for h2 in neighbours[v]
                 if h1 != h2 && length(union(Set(h1), Set(h2))) == length(Set(Tuple(sort([pair[1], pair[2]])) for pair in union(Set(h1), Set(h2))))  # h1 and h2 dont have one rectangle in both orientations
-                    sharedRectsHorizontal= intersect(Set(h1), Set(h2))
+                    sharedRectsHorizontal = intersect(Set(h1), Set(h2))
                     if all(x -> x[1] == n, sharedRectsHorizontal)  # h1 and h2 are disjoint or their common rectangle covers entire vertical side
                         for j in 1 : i-1
                             w = vertical[j]
@@ -261,8 +261,9 @@ function perimiter(rects::Vector{Pair{Int64, Int64}}, n::Int64, m::Int64, r::Int
                                 sharedRectsVertical = intersect(Set(v), Set(w))
                                 if all(x -> x[2] == m, sharedRectsVertical)  # v and w are disjoint or their common rectangle covers entire horizontal side
                                     if length(union(Set(v), Set(w))) == length(Set(Tuple(sort([pair[1], pair[2]])) for pair in union(Set(v), Set(w))))  # v and w dont have one rectangle in both orientations
-                                        if length([h1; w; h2; v]) == r
-                                            push!(solutions, [h1, w, h2, v])
+                                        if length(union(h1, w, h2, v)) <= r   # perimeter uses at most r rectangles
+                                            return true
+                                            #push!(solutions, [h1, w, h2, v])
                                         end
                                     end
                                 end
@@ -274,7 +275,8 @@ function perimiter(rects::Vector{Pair{Int64, Int64}}, n::Int64, m::Int64, r::Int
         end
     end
 
-    return solutions
+    #return solutions
+    return false
 end
 
 
