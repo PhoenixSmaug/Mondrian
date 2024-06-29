@@ -3,7 +3,7 @@
 ### Authors
 * Natalia García-Colín (garciacolin.natalia@gmail.com)
 * Dimitri Leemans (leemans.dimitri@ulb.be)
-* Christoph Müßig (info@cmuessig.de)
+* Mia Müßig (nienna@miamuessig.de)
 * Érika Roldán (erika.roldan@ma.tum.de) https://www.erikaroldan.net/
 * Peter Voran (p-voran@t-online.de)
 
